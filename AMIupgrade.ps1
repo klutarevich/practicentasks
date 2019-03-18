@@ -22,7 +22,8 @@ New-ASLaunchConfiguration -LaunchConfigurationName $LCName$ExtForLCName -Instanc
 Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -LaunchConfigurationName $LCName$ExtForLCName
 # Preparing list of old instances
 $Targets = (Get-ASAutoScalingGroup -AutoScalingGroupName $ASGid).Instances.InstanceId
-# Replacing old images with new ones regarding to new LC
+# Replacing old images with new ones regarding to new LC. 
+# Sleep time was set approximately, for waiting new instance is up and runnig
 Foreach ($i in $Targets)
 {
   Remove-EC2Instance -InstanceId $i -Force
