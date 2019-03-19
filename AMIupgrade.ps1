@@ -19,16 +19,17 @@ echo "Creating new Launch configuration..."
 New-ASLaunchConfiguration -LaunchConfigurationName $LCName$ExtForLCName -InstanceType $LCInstanceType -ImageId $NewAMIid -SecurityGroup $LCSecurityGroup -IamInstanceProfile $LCIAMInstanceProfile
 echo "Done!"
 
-# Preparing list of old instances
+# Calculating amount of instances for replacement
 $Amount = @((Get-ASAutoScalingGroup -AutoScalingGroupName $ASGid).Instances.InstanceId).Length
-echo $Amount
+echo "In current group we have to replace $Amount instances."
 # Updating Auto Scalling Group settings with new LC
 Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -LaunchConfigurationName $LCName$ExtForLCName -TerminationPolicy "OldestInstance"
 
-
+# Replacement initiating via manipulating with Desire capacity
 echo "Starting AMI replacement..."
 for ($i=1; $i -le $Amount; $i++)
 {
+echo "Increasing ASG capacity..."
 Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -DesiredCapacity ($Amount + 1)
   DO
   {
@@ -40,8 +41,9 @@ Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -DesiredCapacity ($Amount
     echo ""
     }
   } While (-not ($Health -eq "Healthy" -or $LifecycleState -eq "InService"))
+echo "Decreasing ASG capacity..."
 Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -DesiredCapacity $Amount
-}
-
+Start-Sleep -Seconds 120
 echo ""
+}
 echo "Auto Scaling group $ASGid was successfully upgraded with AMI $NewAMIid !"
