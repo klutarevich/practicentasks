@@ -9,26 +9,27 @@ param([string]$ASGid = "ASGid", [string]$NewAMIid = "NewAMIid")
 
 
 # Preparing variables for creating new LaunchConfoguration
-$LCName = (Get-ASLaunchConfiguration -LaunchConfigurationName powertest).LaunchConfigurationName
-$LCInstanceType = (Get-ASLaunchConfiguration -LaunchConfigurationName powertest).InstanceType
-$LCSecurityGroup = (Get-ASLaunchConfiguration -LaunchConfigurationName powertest).SecurityGroups
-$LCIAMInstanceProfile = (Get-ASLaunchConfiguration -LaunchConfigurationName powertest).IAMInstanceProfile
+$LCName = (Get-ASAutoScalingGroup -AutoScalingGroupName $ASGid).LaunchConfigurationName
+$LCInstanceType = (Get-ASLaunchConfiguration -LaunchConfigurationName $LCName).InstanceType
+$LCSecurityGroup = (Get-ASLaunchConfiguration -LaunchConfigurationName $LCName).SecurityGroups
+$LCIAMInstanceProfile = (Get-ASLaunchConfiguration -LaunchConfigurationName $LCName).IAMInstanceProfile
 $ExtForLCName = (get-date).ToString("yyyyMMddThhmmss")
 # Creating new LC based on predefined ImageID
 echo "Creating new Launch configuration..."
 New-ASLaunchConfiguration -LaunchConfigurationName $LCName$ExtForLCName -InstanceType $LCInstanceType -ImageId $NewAMIid -SecurityGroup $LCSecurityGroup -IamInstanceProfile $LCIAMInstanceProfile
 echo "Done!"
+
 # Preparing list of old instances
-$Targets = (Get-ASAutoScalingGroup -AutoScalingGroupName $ASGid).Instances.InstanceId
+$Amount = @((Get-ASAutoScalingGroup -AutoScalingGroupName $ASGid).Instances.InstanceId).Length
+echo $Amount
 # Updating Auto Scalling Group settings with new LC
-Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -LaunchConfigurationName $LCName$ExtForLCName -DesiredCapacity (@($Targets).Length+1)
+Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -LaunchConfigurationName $LCName$ExtForLCName -TerminationPolicy "OldestInstance"
 
 
-# Replacing AMI
 echo "Starting AMI replacement..."
-Foreach ($Instance in $Targets)
+for ($i=1; $i -le $Amount; $i++)
 {
-  # Check for Health and LifecycleState of instances in Auto Scaling group
+Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -DesiredCapacity ($Amount + 1)
   DO
   {
     Start-Sleep -Seconds 120
@@ -39,21 +40,8 @@ Foreach ($Instance in $Targets)
     echo ""
     }
   } While (-not ($Health -eq "Healthy" -or $LifecycleState -eq "InService"))
-  # Detaching instance from Auto Scaling group
-  echo "Detaching instance with ID $Instance"
-  echo ""
-  Dismount-ASInstance -InstanceId $Instance -AutoScalingGroupName $ASGid -ShouldDecrementDesiredCapacity $false -Force
-  echo "Done!"
-  echo ""
+Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -DesiredCapacity $Amount
 }
 
-
-# Quick cleanup when whole Auto Scaling group was upgraded
-echo "Quick cleanup..."
-Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -DesiredCapacity (@($Targets).Length)
-Foreach ($Instance in $Targets)
-{
-  Remove-EC2Instance -InstanceId $Instance -Force
-}
 echo ""
 echo "Auto Scaling group $ASGid was successfully upgraded with AMI $NewAMIid !"
