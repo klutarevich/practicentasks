@@ -15,17 +15,36 @@ $LCSecurityGroup = (Get-ASLaunchConfiguration -LaunchConfigurationName powertest
 $LCIAMInstanceProfile = (Get-ASLaunchConfiguration -LaunchConfigurationName powertest).IAMInstanceProfile
 $ExtForLCName = (get-date).ToString("yyyyMMddThhmmss")
 # Creating new LC based on predefined ImageID
+echo "Creating new Launch configuration..."
 New-ASLaunchConfiguration -LaunchConfigurationName $LCName$ExtForLCName -InstanceType $LCInstanceType -ImageId $NewAMIid -SecurityGroup $LCSecurityGroup -IamInstanceProfile $LCIAMInstanceProfile
+echo "Done!"
 
-
-# Updating Auto Scalling Group settings with new LC
-Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -LaunchConfigurationName $LCName$ExtForLCName
 # Preparing list of old instances
 $Targets = (Get-ASAutoScalingGroup -AutoScalingGroupName $ASGid).Instances.InstanceId
-# Replacing old images with new ones regarding to new LC. 
-# Sleep time was set approximately, for waiting new instance is up and runnig
-Foreach ($i in $Targets)
+# Updating Auto Scalling Group settings with new LC
+Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -LaunchConfigurationName $LCName$ExtForLCName
+
+echo "Starting AMI replacement..."
+Foreach ($Instance in $Targets)
 {
-  Remove-EC2Instance -InstanceId $i -Force
-  Start-Sleep -Seconds 300
+  echo "Detaching instance with ID $Instance"
+  echo ""
+  Dismount-ASInstance -InstanceId $Instance -AutoScalingGroupName $ASGid -ShouldDecrementDesiredCapacity $false -Force
+  echo "Done!"
+  echo ""
+  # Check for Health and LifecycleState of instances in Auto Scalling group
+  DO
+  {
+    Start-Sleep -Seconds 120
+    $Health = (Get-ASAutoScalingGroup -AutoScalingGroupName $ASGid).Instances.HealthStatus | Get-Unique
+    $LifecycleState = (Get-ASAutoScalingGroup -AutoScalingGroupName $ASGid).Instances.LifecycleState.Value | Get-Unique
+    if ($Health -eq "Healthy" -and $LifecycleState -eq "InService") {
+    echo "All instances are Healthy and InService at this momemt..."
+    echo ""
+    }
+  } While (-not ($Health -eq "Healthy" -or $LifecycleState -eq "InService"))
+  # Old instances cleanup when Autoscalling group was upgraded with new AMI
+  Remove-EC2Instance -InstanceId $Instance -Force
 }
+echo ""
+echo "Auto Scalling group $ASGid was successfully upgraded with AMI $NewAMIid !"
