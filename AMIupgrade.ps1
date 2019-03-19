@@ -18,21 +18,17 @@ $ExtForLCName = (get-date).ToString("yyyyMMddThhmmss")
 echo "Creating new Launch configuration..."
 New-ASLaunchConfiguration -LaunchConfigurationName $LCName$ExtForLCName -InstanceType $LCInstanceType -ImageId $NewAMIid -SecurityGroup $LCSecurityGroup -IamInstanceProfile $LCIAMInstanceProfile
 echo "Done!"
-
 # Preparing list of old instances
 $Targets = (Get-ASAutoScalingGroup -AutoScalingGroupName $ASGid).Instances.InstanceId
 # Updating Auto Scalling Group settings with new LC
-Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -LaunchConfigurationName $LCName$ExtForLCName
+Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -LaunchConfigurationName $LCName$ExtForLCName -DesiredCapacity (@($Targets).Length+1)
 
+
+# Replacing AMI
 echo "Starting AMI replacement..."
 Foreach ($Instance in $Targets)
 {
-  echo "Detaching instance with ID $Instance"
-  echo ""
-  Dismount-ASInstance -InstanceId $Instance -AutoScalingGroupName $ASGid -ShouldDecrementDesiredCapacity $false -Force
-  echo "Done!"
-  echo ""
-  # Check for Health and LifecycleState of instances in Auto Scalling group
+  # Check for Health and LifecycleState of instances in Auto Scaling group
   DO
   {
     Start-Sleep -Seconds 120
@@ -43,8 +39,21 @@ Foreach ($Instance in $Targets)
     echo ""
     }
   } While (-not ($Health -eq "Healthy" -or $LifecycleState -eq "InService"))
-  # Old instances cleanup when Autoscalling group was upgraded with new AMI
+  # Detaching instance from Auto Scaling group
+  echo "Detaching instance with ID $Instance"
+  echo ""
+  Dismount-ASInstance -InstanceId $Instance -AutoScalingGroupName $ASGid -ShouldDecrementDesiredCapacity $false -Force
+  echo "Done!"
+  echo ""
+}
+
+
+# Quick cleanup when whole Auto Scaling group was upgraded
+echo "Quick cleanup..."
+Update-ASAutoScalingGroup -AutoScalingGroupName $ASGid -DesiredCapacity (@($Targets).Length)
+Foreach ($Instance in $Targets)
+{
   Remove-EC2Instance -InstanceId $Instance -Force
 }
 echo ""
-echo "Auto Scalling group $ASGid was successfully upgraded with AMI $NewAMIid !"
+echo "Auto Scaling group $ASGid was successfully upgraded with AMI $NewAMIid !"
